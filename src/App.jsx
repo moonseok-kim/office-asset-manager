@@ -145,6 +145,40 @@ export default function App() {
     await persist({ ...data, employees: employees.filter(e => e.id !== id) });
   };
 
+  const resizeImage = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const size = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const handlePhotoChange = async (empId, file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImage(file);
+      await persist({ ...data, employees: employees.map(e => e.id === empId ? { ...e, photo: dataUrl } : e) });
+      showToast('사진이 등록됐어요.');
+    } catch (e) {
+      showToast('사진 처리에 실패했어요. 다른 사진으로 시도해주세요.');
+    }
+  };
+
   const startPwEdit = (emp) => { setPwEditId(emp.id); setPwEditValue(emp.password || ''); };
   const savePwEdit = async (id) => {
     await persist({ ...data, employees: employees.map(e => e.id === id ? { ...e, password: pwEditValue.trim() } : e) });
@@ -255,6 +289,26 @@ export default function App() {
       </div>
 
       <div className="max-w-3xl mx-auto p-4 space-y-4">
+        {mode === 'employee' && !selectedEmployee && employees.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 className="text-sm font-semibold text-slate-500 mb-3">우리 팀</h2>
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+              {employees.map(e => (
+                <div key={e.id} className="flex flex-col items-center gap-1">
+                  {e.photo ? (
+                    <img src={e.photo} alt={e.name} className="w-12 h-12 rounded-full object-cover border border-slate-200" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-semibold border border-slate-200">
+                      {e.name.slice(0, 1)}
+                    </div>
+                  )}
+                  <span className="text-[11px] text-slate-600 truncate max-w-[56px]">{e.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {mode === 'employee' && !selectedEmployee && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Lock className="w-4 h-4 text-sky-500" /> 직원 로그인</h2>
@@ -436,7 +490,25 @@ export default function App() {
               <div className="space-y-1.5 mb-3">
                 {employees.map(e => (
                   <div key={e.id} className="flex items-center justify-between text-sm px-3 py-2 border border-slate-200 rounded-lg">
-                    <span>{e.name}</span>
+                    <div className="flex items-center gap-2">
+                      {e.photo ? (
+                        <img src={e.photo} alt={e.name} className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs font-semibold border border-slate-200">
+                          {e.name.slice(0, 1)}
+                        </div>
+                      )}
+                      <span>{e.name}</span>
+                      <label className="text-[11px] text-sky-600 hover:underline cursor-pointer">
+                        사진 등록
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={ev => { const f = ev.target.files?.[0]; if (f) handlePhotoChange(e.id, f); ev.target.value = ''; }}
+                        />
+                      </label>
+                    </div>
                     {pwEditId === e.id ? (
                       <div className="flex items-center gap-1">
                         <input value={pwEditValue} onChange={ev => setPwEditValue(ev.target.value)} className="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="새 비밀번호" />
