@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound } from 'lucide-react';
@@ -42,6 +42,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [pwEditId, setPwEditId] = useState(null);
   const [pwEditValue, setPwEditValue] = useState('');
+  const passwordInputRef = useRef(null);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -323,7 +324,7 @@ export default function App() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Boxes className="w-5 h-5 text-sky-400" />
-            <h1 className="font-semibold text-base tracking-tight">사무실 자재 관리</h1>
+            <h1 className="font-semibold text-base tracking-tight">SK매직 강남센터</h1>
           </div>
           <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
             <button onClick={() => setMode('employee')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === 'employee' ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'}`}>
@@ -345,19 +346,31 @@ export default function App() {
 
         {mode === 'employee' && !selectedEmployee && employees.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 className="text-sm font-semibold text-slate-500 mb-3">우리 팀</h2>
+            <h2 className="text-sm font-semibold text-slate-500 mb-3">우리 팀 <span className="font-normal text-slate-400">(사진을 누르면 선택돼요)</span></h2>
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
               {employees.map(e => (
-                <div key={e.id} className="flex flex-col items-center gap-1">
+                <button
+                  key={e.id}
+                  onClick={() => {
+                    setLoginName(e.name);
+                    setLoginError('');
+                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  }}
+                  className="flex flex-col items-center gap-1"
+                >
                   {e.photo ? (
-                    <img src={e.photo} alt={e.name} className="w-12 h-12 rounded-full object-cover border border-slate-200" />
+                    <img
+                      src={e.photo}
+                      alt={e.name}
+                      className={`w-12 h-12 rounded-full object-cover border-2 ${loginName === e.name ? 'border-sky-500 ring-2 ring-sky-200' : 'border-slate-200'}`}
+                    />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-semibold border border-slate-200">
+                    <div className={`w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-semibold border-2 ${loginName === e.name ? 'border-sky-500 ring-2 ring-sky-200' : 'border-slate-200'}`}>
                       {e.name.slice(0, 1)}
                     </div>
                   )}
-                  <span className="text-[11px] text-slate-600 truncate max-w-[56px]">{e.name}</span>
-                </div>
+                  <span className={`text-[11px] truncate max-w-[56px] ${loginName === e.name ? 'text-sky-600 font-semibold' : 'text-slate-600'}`}>{e.name}</span>
+                </button>
               ))}
             </div>
           </div>
@@ -372,7 +385,7 @@ export default function App() {
               {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
             </select>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-3 block">비밀번호</label>
-            <input type="password" value={loginPw} onChange={e => { setLoginPw(e.target.value); setLoginError(''); }} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
+            <input ref={passwordInputRef} type="password" value={loginPw} onChange={e => { setLoginPw(e.target.value); setLoginError(''); }} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
             {loginError && <p className="text-xs text-red-500 mt-2">{loginError}</p>}
             <button onClick={handleEmployeeLogin} className="mt-3 w-full bg-sky-500 text-white text-sm font-medium py-2 rounded-lg hover:bg-sky-600">로그인</button>
             {employees.length === 0 && <p className="text-xs text-slate-400 mt-3">등록된 직원이 없어요. 관리자 모드에서 먼저 직원을 추가해주세요.</p>}
