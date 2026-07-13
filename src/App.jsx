@@ -324,7 +324,7 @@ export default function App() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Boxes className="w-5 h-5 text-sky-400" />
-            <h1 className="font-semibold text-base tracking-tight">SK매직 강남센터</h1>
+            <h1 className="font-semibold text-base tracking-tight">최강 강남</h1>
           </div>
           <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
             <button onClick={() => setMode('employee')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === 'employee' ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'}`}>
@@ -340,7 +340,7 @@ export default function App() {
 
       <div className="max-w-3xl mx-auto p-4 space-y-4">
         <div className="text-center pt-2 pb-1">
-          <h1 className="text-lg font-bold text-slate-800 leading-snug">SK매직서비스 강남센터 비품목 재고 관리</h1>
+          <h1 className="text-lg font-bold text-slate-800 leading-snug">최강 강남 비품목 재고 관리</h1>
           <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
         </div>
 
