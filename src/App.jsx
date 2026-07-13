@@ -206,6 +206,41 @@ export default function App() {
     await persist({ ...data, models: models.filter(m => m.id !== id), items: items.filter(it => it.modelId !== id) });
   };
 
+  const updateModelQty = async (id, newQtyRaw) => {
+    const newQty = parseInt(newQtyRaw, 10);
+    const model = models.find(m => m.id === id);
+    if (!model || !newQty || newQty < 0) { showToast('올바른 수량을 입력해주세요.'); return; }
+    const modelItems = items.filter(it => it.modelId === id);
+    const diff = newQty - model.qty;
+    if (diff === 0) { showToast('변경된 수량이 없어요.'); return; }
+    if (diff > 0) {
+      const existingNums = modelItems.map(it => parseInt(it.id.split('-').pop(), 10)).filter(n => !isNaN(n));
+      let nextNum = (existingNums.length ? Math.max(...existingNums) : 0) + 1;
+      const newItems = [];
+      for (let i = 0; i < diff; i++) {
+        newItems.push({ id: `${id}-${nextNum}`, modelId: id, status: 'available', assignedTo: null });
+        nextNum++;
+      }
+      await persist({ ...data, models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: [...items, ...newItems] });
+      showToast(`${id} 수량이 ${newQty}대로 늘었어요.`);
+    } else {
+      const removeCount = -diff;
+      const removable = modelItems.filter(it => it.status === 'available');
+      if (removable.length < removeCount) {
+        showToast(`대기중인 항목이 ${removable.length}개뿐이라 그만큼만 줄일 수 있어요. 지급된 항목은 반납 후에 줄여주세요.`);
+        return;
+      }
+      const sortedRemovable = removable.sort((a, b) => {
+        const an = parseInt(a.id.split('-').pop(), 10);
+        const bn = parseInt(b.id.split('-').pop(), 10);
+        return bn - an;
+      });
+      const idsToRemove = new Set(sortedRemovable.slice(0, removeCount).map(it => it.id));
+      await persist({ ...data, models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: items.filter(it => !idsToRemove.has(it.id)) });
+      showToast(`${id} 수량이 ${newQty}대로 줄었어요.`);
+    }
+  };
+
   const requestCheckout = async (itemId) => {
     if (!selectedEmployee) { showToast('먼저 로그인해주세요.'); return; }
     const item = items.find(i => i.id === itemId);
@@ -253,6 +288,20 @@ export default function App() {
     showToast('거절 처리됨');
   };
 
+  const cancelRequest = async (reqId) => {
+    const req = requests.find(r => r.id === reqId);
+    if (!req || req.status !== 'pending' || req.employeeId !== selectedEmployee) return;
+    const newItems = items.map(it => {
+      if (it.id !== req.itemId) return it;
+      if (req.type === 'checkout') return { ...it, status: 'available' };
+      if (req.type === 'return') return { ...it, status: 'assigned' };
+      return it;
+    });
+    const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'cancelled' } : r);
+    await persist({ ...data, items: newItems, requests: newRequests });
+    showToast('신청을 취소했어요.');
+  };
+
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
   const myItems = selectedEmployee ? items.filter(it => it.assignedTo === selectedEmployee && it.status !== 'available') : [];
   const myRequests = selectedEmployee ? requests.filter(r => r.employeeId === selectedEmployee).sort((a, b) => b.ts - a.ts).slice(0, 8) : [];
@@ -289,6 +338,11 @@ export default function App() {
       </div>
 
       <div className="max-w-3xl mx-auto p-4 space-y-4">
+        <div className="text-center pt-2 pb-1">
+          <h1 className="text-lg font-bold text-slate-800 leading-snug">SK매직서비스 강남센터 비품목 재고 관리</h1>
+          <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
+        </div>
+
         {mode === 'employee' && !selectedEmployee && employees.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h2 className="text-sm font-semibold text-slate-500 mb-3">우리 팀</h2>
@@ -368,6 +422,33 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Boxes className="w-4 h-4 text-sky-500" /> 전체 재고 현황</h2>
+              <div className="space-y-2">
+                {models.map(m => {
+                  const modelItems = items.filter(it => it.modelId === m.id);
+                  const avail = modelItems.filter(it => it.status === 'available').length;
+                  const assigned = modelItems.filter(it => it.status === 'assigned').length;
+                  return (
+                    <div key={m.id} className="border border-slate-200 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{m.name}</span>
+                        <span className="text-xs text-slate-400">총 {m.qty}대 · 대기중 {avail}</span>
+                      </div>
+                      {assigned > 0 && (
+                        <div className="mt-1 pt-1 border-t border-slate-100 text-xs text-slate-500 space-y-0.5">
+                          {modelItems.filter(it => it.status === 'assigned').map(it => (
+                            <div key={it.id}>{it.id} → {getEmpName(it.assignedTo)}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {models.length === 0 && <p className="text-xs text-slate-400">등록된 모델이 없어요.</p>}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
               <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><ArrowRightLeft className="w-4 h-4 text-emerald-500" /> 내 보유 자재</h2>
               {myItems.length === 0 ? (
                 <p className="text-xs text-slate-400">현재 보유 중인 자재가 없어요.</p>
@@ -397,9 +478,20 @@ export default function App() {
                   {myRequests.map(r => (
                     <div key={r.id} className="flex items-center justify-between text-xs">
                       <span className="text-slate-600">{r.itemId} · {r.type === 'checkout' ? '신청' : '반납'}</span>
-                      <span className={r.status === 'pending' ? 'text-amber-600' : r.status === 'approved' ? 'text-emerald-600' : 'text-red-500'}>
-                        {r.status === 'pending' ? '대기중' : r.status === 'approved' ? '승인됨' : '거절됨'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={
+                          r.status === 'pending' ? 'text-amber-600' :
+                          r.status === 'approved' ? 'text-emerald-600' :
+                          r.status === 'cancelled' ? 'text-slate-400' : 'text-red-500'
+                        }>
+                          {r.status === 'pending' ? '대기중' : r.status === 'approved' ? '승인됨' : r.status === 'cancelled' ? '취소됨' : '거절됨'}
+                        </span>
+                        {r.status === 'pending' && (
+                          <button onClick={() => cancelRequest(r.id)} className="text-slate-400 hover:text-red-500 underline">
+                            취소
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -540,12 +632,7 @@ export default function App() {
               <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Settings className="w-4 h-4 text-slate-500" /> 모델 관리</h2>
               <div className="space-y-1.5 mb-3">
                 {models.map(m => (
-                  <div key={m.id} className="flex items-center justify-between text-sm px-3 py-2 border border-slate-200 rounded-lg">
-                    <span>{m.name} <span className="text-slate-400 text-xs">({m.qty}대)</span></span>
-                    <button onClick={() => removeModel(m.id)} className="p-1 hover:bg-slate-100 rounded-md">
-                      <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  </div>
+                  <ModelRow key={m.id} model={m} onUpdateQty={updateModelQty} onRemove={removeModel} />
                 ))}
               </div>
               <div className="flex gap-2">
@@ -565,6 +652,45 @@ export default function App() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function ModelRow({ model, onUpdateQty, onRemove }) {
+  const [qtyInput, setQtyInput] = useState(String(model.qty));
+  const [editing, setEditing] = useState(false);
+
+  const save = () => {
+    onUpdateQty(model.id, qtyInput);
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex items-center justify-between text-sm px-3 py-2 border border-slate-200 rounded-lg">
+      <span>{model.name}</span>
+      <div className="flex items-center gap-2">
+        {editing ? (
+          <>
+            <input
+              type="number"
+              min="0"
+              value={qtyInput}
+              onChange={e => setQtyInput(e.target.value)}
+              className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400"
+            />
+            <button onClick={save} className="p-1 bg-emerald-500 text-white rounded"><Check className="w-3 h-3" /></button>
+            <button onClick={() => { setEditing(false); setQtyInput(String(model.qty)); }} className="p-1 bg-slate-100 rounded"><X className="w-3 h-3 text-slate-400" /></button>
+          </>
+        ) : (
+          <>
+            <span className="text-slate-400 text-xs">{model.qty}대</span>
+            <button onClick={() => setEditing(true)} className="text-xs text-sky-600 hover:underline">수량 수정</button>
+            <button onClick={() => onRemove(model.id)} className="p-1 hover:bg-slate-100 rounded-md">
+              <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
