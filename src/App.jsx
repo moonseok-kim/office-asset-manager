@@ -97,6 +97,10 @@ export default function App() {
 
   const { employees, models, items, requests } = data;
   const getEmpName = (id) => employees.find(e => e.id === id)?.name || '알 수 없음';
+  const formatDateTime = (ts) => {
+    if (!ts) return '';
+    return new Date(ts).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
 
   const handleAdminLogin = () => {
     if (adminPwInput === ADMIN_PASSWORD) {
@@ -264,13 +268,14 @@ export default function App() {
   const approveRequest = async (reqId) => {
     const req = requests.find(r => r.id === reqId);
     if (!req) return;
+    const now = Date.now();
     const newItems = items.map(it => {
       if (it.id !== req.itemId) return it;
-      if (req.type === 'checkout') return { ...it, status: 'assigned', assignedTo: req.employeeId };
-      if (req.type === 'return') return { ...it, status: 'available', assignedTo: null };
+      if (req.type === 'checkout') return { ...it, status: 'assigned', assignedTo: req.employeeId, assignedAt: now };
+      if (req.type === 'return') return { ...it, status: 'available', assignedTo: null, assignedAt: null };
       return it;
     });
-    const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'approved' } : r);
+    const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'approved', approvedAt: now } : r);
     await persist({ ...data, items: newItems, requests: newRequests });
     showToast('승인 완료');
   };
@@ -450,7 +455,7 @@ export default function App() {
                       {assigned > 0 && (
                         <div className="mt-1 pt-1 border-t border-slate-100 text-xs text-slate-500 space-y-0.5">
                           {modelItems.filter(it => it.status === 'assigned').map(it => (
-                            <div key={it.id}>{it.id} → {getEmpName(it.assignedTo)}</div>
+                            <div key={it.id}>{it.id} → {getEmpName(it.assignedTo)}{it.assignedAt ? ` (${formatDateTime(it.assignedAt)})` : ''}</div>
                           ))}
                         </div>
                       )}
@@ -472,6 +477,9 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{it.id}</span>
                         {statusBadge(it.status)}
+                        {it.status === 'assigned' && it.assignedAt && (
+                          <span className="text-[11px] text-slate-400">{formatDateTime(it.assignedAt)} 지급</span>
+                        )}
                       </div>
                       <button disabled={it.status !== 'assigned'} onClick={() => requestReturn(it.id)} className={`text-xs px-3 py-1.5 rounded-md font-medium ${it.status === 'assigned' ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-300 cursor-not-allowed'}`}>
                         반납 신청
@@ -490,7 +498,12 @@ export default function App() {
                 <div className="space-y-1.5">
                   {myRequests.map(r => (
                     <div key={r.id} className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600">{r.itemId} · {r.type === 'checkout' ? '신청' : '반납'}</span>
+                      <span className="text-slate-600">
+                        {r.itemId} · {r.type === 'checkout' ? '신청' : '반납'}
+                        {r.status === 'approved' && r.approvedAt && (
+                          <span className="text-slate-400"> · {formatDateTime(r.approvedAt)}</span>
+                        )}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className={
                           r.status === 'pending' ? 'text-amber-600' :
@@ -579,7 +592,7 @@ export default function App() {
                       {assigned > 0 && (
                         <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500 space-y-0.5">
                           {modelItems.filter(it => it.status === 'assigned').map(it => (
-                            <div key={it.id}>{it.id} → {getEmpName(it.assignedTo)}</div>
+                            <div key={it.id}>{it.id} → {getEmpName(it.assignedTo)}{it.assignedAt ? ` (${formatDateTime(it.assignedAt)})` : ''}</div>
                           ))}
                         </div>
                       )}
