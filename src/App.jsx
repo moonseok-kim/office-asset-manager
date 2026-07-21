@@ -384,13 +384,13 @@ export default function App() {
                 <div className="w-14 h-14 rounded-full bg-sky-500 flex items-center justify-center">
                   <MessageSquare className="w-7 h-7 text-white" />
                 </div>
-                <span className="text-base font-bold text-slate-800">익명보장 비밀메세지</span>
+                <span className="text-base font-bold text-slate-800">익명보장 비밀메세지 / 센터장만 확인</span>
                 <span className="text-xs text-slate-400">건의사항, 개선사항, 제보 등등</span>
               </button>
             ) : (
               <div className="text-left">
                 <div className="flex flex-col items-center gap-1 mb-3">
-                  <span className="text-base font-bold text-slate-800">익명보장 비밀메세지</span>
+                  <span className="text-base font-bold text-slate-800">익명보장 비밀메세지 / 센터장만 확인</span>
                   <span className="text-xs text-slate-400">건의사항, 개선사항, 제보 등등</span>
                 </div>
                 <textarea
@@ -468,6 +468,47 @@ export default function App() {
               <button onClick={handleEmployeeLogout} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
                 <LogOut className="w-3.5 h-3.5" /> 로그아웃
               </button>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 센터장과 둘만의 메시지</h2>
+              {(() => {
+                const myThread = messages.filter(m => m.employeeId === selectedEmployee).sort((a, b) => a.ts - b.ts);
+                return (
+                  <>
+                    {myThread.length === 0 ? (
+                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
+                    ) : (
+                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+                        {myThread.map(m => (
+                          <div key={m.id} className={`flex ${m.sender === 'employee' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'employee' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                              <div className="font-semibold mb-0.5">{m.sender === 'employee' ? '나' : '센터장'}</div>
+                              <div>{m.text}</div>
+                              <div className={`text-[10px] mt-1 ${m.sender === 'employee' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={myMsgText}
+                        onChange={e => setMyMsgText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
+                        placeholder="메시지 입력"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      <button
+                        onClick={() => { if (myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
+                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -587,47 +628,6 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 관리자와 메시지</h2>
-              {(() => {
-                const myThread = messages.filter(m => m.employeeId === selectedEmployee).sort((a, b) => a.ts - b.ts);
-                return (
-                  <>
-                    {myThread.length === 0 ? (
-                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
-                    ) : (
-                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
-                        {myThread.map(m => (
-                          <div key={m.id} className={`flex ${m.sender === 'employee' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'employee' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                              <div className="font-semibold mb-0.5">{m.sender === 'employee' ? '나' : '관리자'}</div>
-                              <div>{m.text}</div>
-                              <div className={`text-[10px] mt-1 ${m.sender === 'employee' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        value={myMsgText}
-                        onChange={e => setMyMsgText(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
-                        placeholder="메시지 입력"
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                      />
-                      <button
-                        onClick={() => { if (myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
-                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
           </>
         )}
 
@@ -721,7 +721,7 @@ export default function App() {
                         {thread.map(m => (
                           <div key={m.id} className={`flex ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                              <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(관리자)' : getEmpName(adminMsgThread)}</div>
+                              <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(센터장)' : getEmpName(adminMsgThread)}</div>
                               <div>{m.text}</div>
                               <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
                             </div>
