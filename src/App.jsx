@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
+
+const getSeenTs = (key) => {
+  try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
+};
+const markSeenNow = (key) => {
+  try { localStorage.setItem(`seen_${key}`, String(Date.now())); } catch {}
+};
 
 const defaultData = () => {
   const models = [
@@ -17,7 +24,7 @@ const defaultData = () => {
       items.push({ id: `${m.name}-${i}`, modelId: m.id, status: 'available', assignedTo: null });
     }
   });
-  return { employees: [], models, items, requests: [], anonymousMessages: [], messages: [] };
+  return { employees: [], models, items, requests: [], anonymousMessages: [], messages: [], announcements: [] };
 };
 
 export default function App() {
@@ -49,8 +56,12 @@ export default function App() {
   const [myMsgText, setMyMsgText] = useState('');
   const [adminMsgThread, setAdminMsgThread] = useState('');
   const [adminMsgText, setAdminMsgText] = useState('');
-  const [anonInboxOpen, setAnonInboxOpen] = useState(true);
-  const [mgrInboxOpen, setMgrInboxOpen] = useState(true);
+  const [noteInput, setNoteInput] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [announceInput, setAnnounceInput] = useState('');
+  const [editingAnnId, setEditingAnnId] = useState(null);
+  const [editingAnnText, setEditingAnnText] = useState('');
 
   const showToast = (msg) => {
     setToast(msg);
@@ -106,6 +117,8 @@ export default function App() {
   const { employees, models, items, requests } = data;
   const anonymousMessages = data.anonymousMessages || [];
   const messages = data.messages || [];
+  const notes = data.notes || [];
+  const announcements = data.announcements || [];
   const getEmpName = (id) => employees.find(e => e.id === id)?.name || '알 수 없음';
   const formatDateTime = (ts) => {
     if (!ts) return '';
@@ -345,6 +358,51 @@ export default function App() {
     showToast('삭제했어요.');
   };
 
+  const addNote = async () => {
+    const text = noteInput.trim();
+    if (!text || !selectedEmployee) return;
+    const now = Date.now();
+    const note = { id: `note_${now}_${Math.random().toString(36).slice(2, 7)}`, employeeId: selectedEmployee, text, createdAt: now, updatedAt: now };
+    await persist({ ...data, notes: [...notes, note] });
+    setNoteInput('');
+  };
+
+  const startEditNote = (음표) => { setEditingNoteId(note.id); setEditingNoteText(note.text); };
+  const saveEditNote = async (id) => {
+    const text = editingNoteText.trim();
+    if (!text) return;
+    await persist({ ...data, notes: notes.map(n => n.id === id ? { ...n, text, updatedAt: Date.now() } : n) });
+    setEditingNoteId(null);
+    setEditingNoteText('');
+  };
+  const deleteNote = async (id) => {
+    await persist({ ...data, notes: notes.filter(n => n.id !== id) });
+    showToast('메모를 삭제했어요.');
+  };
+
+  const addAnnouncement = async () => {
+    const text = announceInput.trim();
+    if (!text) { showToast('내용을 입력해주세요.'); return; }
+    const now = Date.now();
+    const a = { id: `ann_${now}_${Math.random().toString(36).slice(2, 7)}`, text, createdAt: now, updatedAt: now };
+    await persist({ ...data, announcements: [...announcements, a] });
+    setAnnounceInput('');
+    showToast('공지사항이 등록됐어요.');
+  };
+
+  const startEditAnnouncement = (a) => { setEditingAnnId(a.id); setEditingAnnText(a.text); };
+  const saveEditAnnouncement = async (id) => {
+    const text = editingAnnText.trim();
+    if (!text) return;
+    await persist({ ...data, announcements: announcements.map(a => a.id === id ? { ...a, text, updatedAt: Date.now() } : a) });
+    setEditingAnnId(null);
+    setEditingAnnText('');
+  };
+  const deleteAnnouncement = async (id) => {
+    await persist({ ...data, announcements: announcements.filter(a => a.id !== id) });
+    showToast('공지사항을 삭제했어요.');
+  };
+
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
   const myItems = selectedEmployee ? items.filter(it => it.assignedTo === selectedEmployee && it.status !== 'available') : [];
   const myRequests = selectedEmployee ? requests.filter(r => r.employeeId === selectedEmployee).sort((a, b) => b.ts - a.ts).slice(0, 8) : [];
@@ -359,6 +417,21 @@ export default function App() {
     const s = map[status] || map.available;
     return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.cls}`}>{s.label}</span>;
   };
+
+  const seenPendingTs = getSeenTs('admin_pending');
+  const pendingBadge = pendingRequests.filter(r => r.ts > seenPendingTs).length;
+
+  const seenAnonTs = getSeenTs('admin_anon');
+  const anonBadge = anonymousMessages.filter(m => m.ts > seenAnonTs).length;
+
+  const seenMgrMsgTs = getSeenTs('admin_mgrmsg');
+  const mgrMsgBadge = messages.filter(m => m.sender === 'employee' && m.ts > seenMgrMsgTs).length;
+
+  const empMsgSeenKey = selectedEmployee ? `emp_msg_${selectedEmployee}` : null;
+  const seenEmpMsgTs = empMsgSeenKey ? getSeenTs(empMsgSeenKey) : 0;
+  const myMsgBadge = selectedEmployee ? messages.filter(m => m.employeeId === selectedEmployee && m.sender === 'admin' && m.ts > seenEmpMsgTs).length : 0;
+
+  const myNotes = selectedEmployee ? notes.filter(n => n.employeeId === selectedEmployee).sort((a, b) => b.createdAt - a.createdAt) : [];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
@@ -385,6 +458,24 @@ export default function App() {
           <h1 className="text-lg font-bold text-slate-800 leading-snug">최강 강남 비품목 재고 관리</h1>
           <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
         </div>
+
+        {announcements.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <h2 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
+              <Megaphone className="w-4 h-4" /> 공지사항
+            </h2>
+            <div className="space-y-2 max-h-52 overflow-y-auto">
+              {[...announcements].sort((a, b) => b.createdAt - a.createdAt).map(a => (
+                <div key={a.id} className="text-sm text-slate-700 border-b border-amber-100 last:border-0 pb-2 last:pb-0">
+                  <p className="whitespace-pre-wrap">{a.text}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {formatDateTime(a.createdAt)}{a.updatedAt !== a.createdAt ? ` (수정 ${formatDateTime(a.updatedAt)})` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {mode === 'employee' && !selectedEmployee && (
           <div className="bg-white rounded-xl border-2 border-sky-200 p-5 text-center">
@@ -482,8 +573,12 @@ export default function App() {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 센터장과 둘만의 메시지</h2>
+            <Section
+              title="센터장과 둘만의 메시지"
+              icon={MessageSquare}
+              badge={myMsgBadge}
+              onOpen={() => empMsgSeenKey && markSeenNow(empMsgSeenKey)}
+            >
               {(() => {
                 const myThread = messages.filter(m => m.employeeId === selectedEmployee).sort((a, b) => a.ts - b.ts);
                 return (
@@ -492,15 +587,31 @@ export default function App() {
                       <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
                     ) : (
                       <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
-                        {myThread.map(m => (
-                          <div key={m.id} className={`flex ${m.sender === 'employee' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'employee' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                              <div className="font-semibold mb-0.5">{m.sender === 'employee' ? '나' : '센터장'}</div>
-                              <div>{m.text}</div>
-                              <div className={`text-[10px] mt-1 ${m.sender === 'employee' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                        {myThread.map(m => {
+                          const isNew = m.sender === 'admin' && m.ts > seenEmpMsgTs;
+                          return (
+                            <div key={m.id} className={`flex items-start gap-1 ${m.sender === 'employee' ? 'justify-end' : 'justify-start'}`}>
+                              {m.sender === 'employee' && (
+                                <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md order-2">
+                                  <Trash2 className="w-3 h-3 text-slate-400" />
+                                </button>
+                              )}
+                              <div className={`max-w-[75%] rounded-lg px-3 py-2 text-xs ${m.sender === 'employee' ? 'bg-sky-500 text-white' : isNew ? 'bg-amber-50 text-slate-700 ring-2 ring-amber-300' : 'bg-slate-100 text-slate-700'}`}>
+                                <div className="font-semibold mb-0.5 flex items-center gap-1">
+                                  {m.sender === 'employee' ? '나' : '센터장'}
+                                  {isNew && <span className="bg-amber-400 text-white text-[9px] px-1 rounded-full">NEW</span>}
+                                </div>
+                                <div>{m.text}</div>
+                                <div className={`text-[10px] mt-1 ${m.sender === 'employee' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                              </div>
+                              {m.sender === 'admin' && (
+                                <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md">
+                                  <Trash2 className="w-3 h-3 text-slate-400" />
+                                </button>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                     <div className="flex gap-2">
@@ -521,10 +632,61 @@ export default function App() {
                   </>
                 );
               })()}
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Package className="w-4 h-4 text-sky-500" /> 자재 신청</h2>
+            <Section title="나만의 메모장" icon={StickyNote} iconColor="text-amber-500">
+              <div className="space-y-2 mb-3">
+                {myNotes.length === 0 ? (
+                  <p className="text-xs text-slate-400">저장된 메모가 없어요.</p>
+                ) : (
+                  myNotes.map(n => (
+                    <div key={n.id} className="border border-slate-200 rounded-lg p-3">
+                      {editingNoteId === n.id ? (
+                        <>
+                          <textarea
+                            value={editingNoteText}
+                            onChange={e => setEditingNoteText(e.target.value)}
+                            rows={3}
+                            className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => saveEditNote(n.id)} className="text-xs bg-emerald-500 text-white px-3 py-1 rounded-md">저장</button>
+                            <button onClick={() => { setEditingNoteId(null); setEditingNoteText(''); }} className="text-xs text-slate-500">취소</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.text}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[11px] text-slate-400">
+                              작성 {formatDateTime(n.createdAt)}{n.updatedAt !== n.createdAt ? ` · 수정 ${formatDateTime(n.updatedAt)}` : ''}
+                            </span>
+                            <div className="flex gap-2">
+                              <button onClick={() => startEditNote(n)} className="text-xs text-sky-600 hover:underline">수정</button>
+                              <button onClick={() => deleteNote(n.id)} className="text-xs text-red-500 hover:underline">삭제</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={noteInput}
+                  onChange={e => setNoteInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && noteInput.trim()) addNote(); }}
+                  placeholder="메모 입력"
+                  className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+                <button onClick={addNote} className="px-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </Section>
+
+            <Section title="자재 신청" icon={Package}>
               <div className="space-y-2">
                 {models.map(m => {
                   const modelItems = items.filter(it => it.modelId === m.id);
@@ -554,10 +716,9 @@ export default function App() {
                 })}
                 {models.length === 0 && <p className="text-xs text-slate-400">등록된 모델이 없어요.</p>}
               </div>
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Boxes className="w-4 h-4 text-sky-500" /> 전체 재고 현황</h2>
+            <Section title="전체 재고 현황" icon={Boxes}>
               <div className="space-y-2">
                 {models.map(m => {
                   const modelItems = items.filter(it => it.modelId === m.id);
@@ -581,10 +742,9 @@ export default function App() {
                 })}
                 {models.length === 0 && <p className="text-xs text-slate-400">등록된 모델이 없어요.</p>}
               </div>
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><ArrowRightLeft className="w-4 h-4 text-emerald-500" /> 내 보유 자재</h2>
+            <Section title="내 보유 자재" icon={ArrowRightLeft} iconColor="text-emerald-500">
               {myItems.length === 0 ? (
                 <p className="text-xs text-slate-400">현재 보유 중인 자재가 없어요.</p>
               ) : (
@@ -605,10 +765,9 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Clock className="w-4 h-4 text-slate-400" /> 내 신청 내역</h2>
+            <Section title="내 신청 내역" icon={Clock} iconColor="text-slate-400">
               {myRequests.length === 0 ? (
                 <p className="text-xs text-slate-400">신청 내역이 없어요.</p>
               ) : (
@@ -639,7 +798,7 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </div>
+            </Section>
           </>
         )}
 
@@ -661,8 +820,63 @@ export default function App() {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Clock className="w-4 h-4 text-amber-500" /> 승인 대기 ({pendingRequests.length})</h2>
+            <Section title="공지사항 관리" icon={Megaphone} iconColor="text-amber-500">
+              <div className="space-y-2 mb-3">
+                {announcements.length === 0 ? (
+                  <p className="text-xs text-slate-400">등록된 공지사항이 없어요.</p>
+                ) : (
+                  [...announcements].sort((a, b) => b.createdAt - a.createdAt).map(a => (
+                    <div key={a.id} className="border border-slate-200 rounded-lg p-3">
+                      {editingAnnId === a.id ? (
+                        <>
+                          <textarea
+                            value={editingAnnText}
+                            onChange={e => setEditingAnnText(e.target.value)}
+                            rows={3}
+                            className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => saveEditAnnouncement(a.id)} className="text-xs bg-emerald-500 text-white px-3 py-1 rounded-md">저장</button>
+                            <button onClick={() => { setEditingAnnId(null); setEditingAnnText(''); }} className="text-xs text-slate-500">취소</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{a.text}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[11px] text-slate-400">
+                              등록 {formatDateTime(a.createdAt)}{a.updatedAt !== a.createdAt ? ` · 수정 ${formatDateTime(a.updatedAt)}` : ''}
+                            </span>
+                            <div className="flex gap-2">
+                              <button onClick={() => startEditAnnouncement(a)} className="text-xs text-sky-600 hover:underline">수정</button>
+                              <button onClick={() => deleteAnnouncement(a.id)} className="text-xs text-red-500 hover:underline">삭제</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              <textarea
+                value={announceInput}
+                onChange={e => setAnnounceInput(e.target.value)}
+                rows={2}
+                placeholder="공지 내용 입력"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              />
+              <button onClick={addAnnouncement} className="mt-2 flex items-center gap-1 text-xs font-medium bg-amber-500 text-white px-3 py-1.5 rounded-md hover:bg-amber-600">
+                <Plus className="w-3.5 h-3.5" /> 공지 등록
+              </button>
+            </Section>
+
+            <Section
+              title="승인 대기"
+              icon={Clock}
+              iconColor="text-amber-500"
+              badge={pendingBadge}
+              onOpen={() => markSeenNow('admin_pending')}
+            >
               {pendingRequests.length === 0 ? (
                 <p className="text-xs text-slate-400">대기 중인 요청이 없어요.</p>
               ) : (
@@ -685,109 +899,114 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <button onClick={() => setAnonInboxOpen(v => !v)} className="w-full flex items-center justify-between mb-1">
-                <h2 className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare className="w-4 h-4 text-sky-500" /> 익명 제보함 ({anonymousMessages.length})</h2>
-                {anonInboxOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-              </button>
-              {anonInboxOpen && (
-                anonymousMessages.length === 0 ? (
-                  <p className="text-xs text-slate-400 mt-2">접수된 익명 메시지가 없어요.</p>
-                ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto mt-2">
-                    {[...anonymousMessages].sort((a, b) => b.ts - a.ts).map(m => (
-                      <div key={m.id} className="border border-slate-200 rounded-lg p-3 relative">
+            <Section
+              title="익명 제보함"
+              icon={MessageSquare}
+              badge={anonBadge}
+              onOpen={() => markSeenNow('admin_anon')}
+            >
+              {anonymousMessages.length === 0 ? (
+                <p className="text-xs text-slate-400">접수된 익명 메시지가 없어요.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {[...anonymousMessages].sort((a, b) => b.ts - a.ts).map(m => {
+                    const isNew = m.ts > seenAnonTs;
+                    return (
+                      <div key={m.id} className={`border rounded-lg p-3 relative ${isNew ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
                         <button onClick={() => deleteAnonymousMessage(m.id)} className="absolute top-2 right-2 p-1 hover:bg-slate-100 rounded-md">
                           <Trash2 className="w-3.5 h-3.5 text-slate-400" />
                         </button>
-                        <p className="text-sm text-slate-700 whitespace-pre-wrap pr-6">{m.text}</p>
+                        {isNew && <span className="bg-amber-400 text-white text-[9px] px-1 rounded-full mr-1.5">NEW</span>}
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap pr-6 inline">{m.text}</p>
                         <p className="text-[11px] text-slate-400 mt-1.5">{formatDateTime(m.ts)}</p>
                       </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <button onClick={() => setMgrInboxOpen(v => !v)} className="w-full flex items-center justify-between mb-1">
-                <h2 className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare className="w-4 h-4 text-sky-500" /> 매니저 메시지함</h2>
-                {mgrInboxOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-              </button>
-              {mgrInboxOpen && (
-                <>
-                  <div className="flex flex-wrap gap-1.5 mb-3 mt-2">
-                    {employees.map(e => {
-                      const count = messages.filter(m => m.employeeId === e.id).length;
-                      const isActive = adminMsgThread === e.id;
-                      return (
-                        <button
-                          key={e.id}
-                          onClick={() => setAdminMsgThread(e.id)}
-                          className={`text-xs px-3 py-1.5 rounded-full border font-medium ${isActive ? 'bg-sky-500 text-white border-sky-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                        >
-                          {e.name}{count > 0 ? ` (${count})` : ''}
-                        </button>
-                      );
-                    })}
-                    {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
-                  </div>
-
-                  {adminMsgThread && (() => {
-                    const thread = messages.filter(m => m.employeeId === adminMsgThread).sort((a, b) => a.ts - b.ts);
-                    return (
-                      <div>
-                        {thread.length === 0 ? (
-                          <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
-                        ) : (
-                          <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
-                            {thread.map(m => (
-                              <div key={m.id} className={`flex items-start gap-1 ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                                {m.sender !== 'admin' && (
-                                  <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md order-2">
-                                    <Trash2 className="w-3 h-3 text-slate-400" />
-                                  </button>
-                                )}
-                                <div className={`max-w-[75%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                  <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(센터장)' : getEmpName(adminMsgThread)}</div>
-                                  <div>{m.text}</div>
-                                  <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
-                                </div>
-                                {m.sender === 'admin' && (
-                                  <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md">
-                                    <Trash2 className="w-3 h-3 text-slate-400" />
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <input
-                            value={adminMsgText}
-                            onChange={e => setAdminMsgText(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter' && adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
-                            placeholder="답장 입력"
-                            className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                          />
-                          <button
-                            onClick={() => { if (adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
-                            className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
                     );
-                  })()}
-                </>
+                  })}
+                </div>
               )}
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Boxes className="w-4 h-4 text-sky-500" /> 재고 현황</h2>
+            <Section
+              title="매니저 메시지함"
+              icon={MessageSquare}
+              badge={mgrMsgBadge}
+              onOpen={() => markSeenNow('admin_mgrmsg')}
+            >
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {employees.map(e => {
+                  const count = messages.filter(m => m.employeeId === e.id).length;
+                  const isActive = adminMsgThread === e.id;
+                  return (
+                    <button
+                      key={e.id}
+                      onClick={() => setAdminMsgThread(e.id)}
+                      className={`text-xs px-3 py-1.5 rounded-full border font-medium ${isActive ? 'bg-sky-500 text-white border-sky-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {e.name}{count > 0 ? ` (${count})` : ''}
+                    </button>
+                  );
+                })}
+                {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
+              </div>
+
+              {adminMsgThread && (() => {
+                const thread = messages.filter(m => m.employeeId === adminMsgThread).sort((a, b) => a.ts - b.ts);
+                return (
+                  <div>
+                    {thread.length === 0 ? (
+                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
+                    ) : (
+                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+                        {thread.map(m => {
+                          const isNew = m.sender === 'employee' && m.ts > seenMgrMsgTs;
+                          return (
+                            <div key={m.id} className={`flex items-start gap-1 ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                              {m.sender !== 'admin' && (
+                                <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md order-2">
+                                  <Trash2 className="w-3 h-3 text-slate-400" />
+                                </button>
+                              )}
+                              <div className={`max-w-[75%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : isNew ? 'bg-amber-50 text-slate-700 ring-2 ring-amber-300' : 'bg-slate-100 text-slate-700'}`}>
+                                <div className="font-semibold mb-0.5 flex items-center gap-1">
+                                  {m.sender === 'admin' ? '나(센터장)' : getEmpName(adminMsgThread)}
+                                  {isNew && <span className="bg-amber-400 text-white text-[9px] px-1 rounded-full">NEW</span>}
+                                </div>
+                                <div>{m.text}</div>
+                                <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                              </div>
+                              {m.sender === 'admin' && (
+                                <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md">
+                                  <Trash2 className="w-3 h-3 text-slate-400" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={adminMsgText}
+                        onChange={e => setAdminMsgText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                        placeholder="답장 입력"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      <button
+                        onClick={() => { if (adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </Section>
+
+            <Section title="재고 현황" icon={Boxes}>
               <div className="space-y-2">
                 {models.map(m => {
                   const modelItems = items.filter(it => it.modelId === m.id);
@@ -817,10 +1036,9 @@ export default function App() {
                 })}
                 {models.length === 0 && <p className="text-xs text-slate-400">등록된 모델이 없어요.</p>}
               </div>
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><User className="w-4 h-4 text-slate-500" /> 매니저 관리</h2>
+            <Section title="매니저 관리" icon={User} iconColor="text-slate-500">
               <div className="space-y-1.5 mb-3">
                 {employees.map(e => (
                   <div key={e.id} className="flex items-center justify-between text-sm px-3 py-2 border border-slate-200 rounded-lg">
@@ -868,10 +1086,9 @@ export default function App() {
               <button onClick={addEmployees} className="mt-2 flex items-center gap-1 text-xs font-medium bg-slate-800 text-white px-3 py-1.5 rounded-md hover:bg-slate-700">
                 <Plus className="w-3.5 h-3.5" /> 일괄 추가
               </button>
-            </div>
+            </Section>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Settings className="w-4 h-4 text-slate-500" /> 모델 관리</h2>
+            <Section title="모델 관리" icon={Settings} iconColor="text-slate-500">
               <div className="space-y-1.5 mb-3">
                 {models.map(m => (
                   <ModelRow key={m.id} model={m} onUpdateQty={updateModelQty} onRemove={removeModel} />
@@ -884,7 +1101,7 @@ export default function App() {
                   <Plus className="w-3.5 h-3.5" /> 추가
                 </button>
               </div>
-            </div>
+            </Section>
           </>
         )}
       </div>
@@ -894,6 +1111,31 @@ export default function App() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function Section({ title, icon: Icon, iconColor = 'text-sky-500', badge = 0, defaultOpen = false, onOpen, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && onOpen) onOpen();
+  };
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <button onClick={toggle} className="w-full flex items-center justify-between">
+        <h2 className="text-sm font-semibold flex items-center gap-1.5 text-slate-800">
+          <Icon className={`w-4 h-4 ${iconColor}`} /> {title}
+          {badge > 0 && !open && (
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+              {badge}
+            </span>
+          )}
+        </h2>
+        {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+      </button>
+      {open && <div className="mt-3">{children}</div>}
     </div>
   );
 }
