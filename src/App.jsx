@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send } from 'lucide-react';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
@@ -49,6 +49,8 @@ export default function App() {
   const [myMsgText, setMyMsgText] = useState('');
   const [adminMsgThread, setAdminMsgThread] = useState('');
   const [adminMsgText, setAdminMsgText] = useState('');
+  const [anonInboxOpen, setAnonInboxOpen] = useState(true);
+  const [mgrInboxOpen, setMgrInboxOpen] = useState(true);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -331,6 +333,16 @@ export default function App() {
     if (!trimmed || !employeeId) return;
     const msg = { id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, employeeId, sender, text: trimmed, ts: Date.now() };
     await persist({ ...data, messages: [...messages, msg] });
+  };
+
+  const deleteAnonymousMessage = async (id) => {
+    await persist({ ...data, anonymousMessages: anonymousMessages.filter(m => m.id !== id) });
+    showToast('삭제했어요.');
+  };
+
+  const deleteManagerMessage = async (id) => {
+    await persist({ ...data, messages: messages.filter(m => m.id !== id) });
+    showToast('삭제했어요.');
   };
 
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
@@ -676,77 +688,102 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 익명 제보함 ({anonymousMessages.length})</h2>
-              {anonymousMessages.length === 0 ? (
-                <p className="text-xs text-slate-400">접수된 익명 메시지가 없어요.</p>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {[...anonymousMessages].sort((a, b) => b.ts - a.ts).map(m => (
-                    <div key={m.id} className="border border-slate-200 rounded-lg p-3">
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{m.text}</p>
-                      <p className="text-[11px] text-slate-400 mt-1.5">{formatDateTime(m.ts)}</p>
-                    </div>
-                  ))}
-                </div>
+              <button onClick={() => setAnonInboxOpen(v => !v)} className="w-full flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare className="w-4 h-4 text-sky-500" /> 익명 제보함 ({anonymousMessages.length})</h2>
+                {anonInboxOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+              {anonInboxOpen && (
+                anonymousMessages.length === 0 ? (
+                  <p className="text-xs text-slate-400 mt-2">접수된 익명 메시지가 없어요.</p>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto mt-2">
+                    {[...anonymousMessages].sort((a, b) => b.ts - a.ts).map(m => (
+                      <div key={m.id} className="border border-slate-200 rounded-lg p-3 relative">
+                        <button onClick={() => deleteAnonymousMessage(m.id)} className="absolute top-2 right-2 p-1 hover:bg-slate-100 rounded-md">
+                          <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap pr-6">{m.text}</p>
+                        <p className="text-[11px] text-slate-400 mt-1.5">{formatDateTime(m.ts)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 매니저 메시지함</h2>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {employees.map(e => {
-                  const count = messages.filter(m => m.employeeId === e.id).length;
-                  const isActive = adminMsgThread === e.id;
-                  return (
-                    <button
-                      key={e.id}
-                      onClick={() => setAdminMsgThread(e.id)}
-                      className={`text-xs px-3 py-1.5 rounded-full border font-medium ${isActive ? 'bg-sky-500 text-white border-sky-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {e.name}{count > 0 ? ` (${count})` : ''}
-                    </button>
-                  );
-                })}
-                {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
-              </div>
-
-              {adminMsgThread && (() => {
-                const thread = messages.filter(m => m.employeeId === adminMsgThread).sort((a, b) => a.ts - b.ts);
-                return (
-                  <div>
-                    {thread.length === 0 ? (
-                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
-                    ) : (
-                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
-                        {thread.map(m => (
-                          <div key={m.id} className={`flex ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                              <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(센터장)' : getEmpName(adminMsgThread)}</div>
-                              <div>{m.text}</div>
-                              <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        value={adminMsgText}
-                        onChange={e => setAdminMsgText(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
-                        placeholder="답장 입력"
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-                      />
-                      <button
-                        onClick={() => { if (adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
-                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-                    </div>
+              <button onClick={() => setMgrInboxOpen(v => !v)} className="w-full flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare className="w-4 h-4 text-sky-500" /> 매니저 메시지함</h2>
+                {mgrInboxOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+              {mgrInboxOpen && (
+                <>
+                  <div className="flex flex-wrap gap-1.5 mb-3 mt-2">
+                    {employees.map(e => {
+                      const count = messages.filter(m => m.employeeId === e.id).length;
+                      const isActive = adminMsgThread === e.id;
+                      return (
+                        <button
+                          key={e.id}
+                          onClick={() => setAdminMsgThread(e.id)}
+                          className={`text-xs px-3 py-1.5 rounded-full border font-medium ${isActive ? 'bg-sky-500 text-white border-sky-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          {e.name}{count > 0 ? ` (${count})` : ''}
+                        </button>
+                      );
+                    })}
+                    {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
                   </div>
-                );
-              })()}
+
+                  {adminMsgThread && (() => {
+                    const thread = messages.filter(m => m.employeeId === adminMsgThread).sort((a, b) => a.ts - b.ts);
+                    return (
+                      <div>
+                        {thread.length === 0 ? (
+                          <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
+                        ) : (
+                          <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+                            {thread.map(m => (
+                              <div key={m.id} className={`flex items-start gap-1 ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                                {m.sender !== 'admin' && (
+                                  <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md order-2">
+                                    <Trash2 className="w-3 h-3 text-slate-400" />
+                                  </button>
+                                )}
+                                <div className={`max-w-[75%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                  <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(센터장)' : getEmpName(adminMsgThread)}</div>
+                                  <div>{m.text}</div>
+                                  <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                                </div>
+                                {m.sender === 'admin' && (
+                                  <button onClick={() => deleteManagerMessage(m.id)} className="p-1 mt-1 hover:bg-slate-100 rounded-md">
+                                    <Trash2 className="w-3 h-3 text-slate-400" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <input
+                            value={adminMsgText}
+                            onChange={e => setAdminMsgText(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter' && adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                            placeholder="답장 입력"
+                            className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                          />
+                          <button
+                            onClick={() => { if (adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                            className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
