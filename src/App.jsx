@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound } from 'lucide-react';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
@@ -17,7 +17,7 @@ const defaultData = () => {
       items.push({ id: `${m.name}-${i}`, modelId: m.id, status: 'available', assignedTo: null });
     }
   });
-  return { employees: [], models, items, requests: [] };
+  return { employees: [], models, items, requests: [], anonymousMessages: [], messages: [] };
 };
 
 export default function App() {
@@ -43,6 +43,12 @@ export default function App() {
   const [pwEditId, setPwEditId] = useState(null);
   const [pwEditValue, setPwEditValue] = useState('');
   const passwordInputRef = useRef(null);
+
+  const [showAnonForm, setShowAnonForm] = useState(false);
+  const [anonText, setAnonText] = useState('');
+  const [myMsgText, setMyMsgText] = useState('');
+  const [adminMsgThread, setAdminMsgThread] = useState('');
+  const [adminMsgText, setAdminMsgText] = useState('');
 
   const showToast = (msg) => {
     setToast(msg);
@@ -96,6 +102,8 @@ export default function App() {
   }
 
   const { employees, models, items, requests } = data;
+  const anonymousMessages = data.anonymousMessages || [];
+  const messages = data.messages || [];
   const getEmpName = (id) => employees.find(e => e.id === id)?.name || '알 수 없음';
   const formatDateTime = (ts) => {
     if (!ts) return '';
@@ -141,7 +149,7 @@ export default function App() {
     if (toAdd.length === 0) { showToast('추가할 새 이름이 없어요.'); return; }
     await persist({ ...data, employees: [...employees, ...toAdd] });
     setBulkNames('');
-    showToast(`직원 ${toAdd.length}명 추가됨`);
+    showToast(`매니저 ${toAdd.length}명 추가됨`);
   };
 
   const removeEmployee = async (id) => {
@@ -308,6 +316,23 @@ export default function App() {
     showToast('신청을 취소했어요.');
   };
 
+  const sendAnonymousMessage = async () => {
+    const text = anonText.trim();
+    if (!text) { showToast('내용을 입력해주세요.'); return; }
+    const msg = { id: `anon_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text, ts: Date.now() };
+    await persist({ ...data, anonymousMessages: [...anonymousMessages, msg] });
+    setAnonText('');
+    setShowAnonForm(false);
+    showToast('익명으로 안전하게 전달됐어요. 감사합니다.');
+  };
+
+  const sendManagerMessage = async (employeeId, sender, text) => {
+    const trimmed = text.trim();
+    if (!trimmed || !employeeId) return;
+    const msg = { id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, employeeId, sender, text: trimmed, ts: Date.now() };
+    await persist({ ...data, messages: [...messages, msg] });
+  };
+
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
   const myItems = selectedEmployee ? items.filter(it => it.assignedTo === selectedEmployee && it.status !== 'available') : [];
   const myRequests = selectedEmployee ? requests.filter(r => r.employeeId === selectedEmployee).sort((a, b) => b.ts - a.ts).slice(0, 8) : [];
@@ -333,7 +358,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
             <button onClick={() => setMode('employee')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === 'employee' ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'}`}>
-              <User className="w-3.5 h-3.5" /> 직원
+              <User className="w-3.5 h-3.5" /> 매니저
             </button>
             <button onClick={() => setMode('admin')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === 'admin' ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'}`}>
               <Shield className="w-3.5 h-3.5" /> 관리자
@@ -348,6 +373,45 @@ export default function App() {
           <h1 className="text-lg font-bold text-slate-800 leading-snug">최강 강남 비품목 재고 관리</h1>
           <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
         </div>
+
+        {mode === 'employee' && !selectedEmployee && (
+          <div className="bg-white rounded-xl border-2 border-sky-200 p-5 text-center">
+            {!showAnonForm ? (
+              <button
+                onClick={() => setShowAnonForm(true)}
+                className="w-full flex flex-col items-center gap-2 py-2"
+              >
+                <div className="w-14 h-14 rounded-full bg-sky-500 flex items-center justify-center">
+                  <MessageSquare className="w-7 h-7 text-white" />
+                </div>
+                <span className="text-base font-bold text-slate-800">익명보장 비밀메세지</span>
+                <span className="text-xs text-slate-400">건의사항, 개선사항, 제보 등등</span>
+              </button>
+            ) : (
+              <div className="text-left">
+                <div className="flex flex-col items-center gap-1 mb-3">
+                  <span className="text-base font-bold text-slate-800">익명보장 비밀메세지</span>
+                  <span className="text-xs text-slate-400">건의사항, 개선사항, 제보 등등</span>
+                </div>
+                <textarea
+                  value={anonText}
+                  onChange={e => setAnonText(e.target.value)}
+                  rows={4}
+                  placeholder="누가 보냈는지 저장되지 않아요. 편하게 적어주세요."
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+                <div className="flex gap-2 mt-2">
+                  <button onClick={sendAnonymousMessage} className="flex-1 flex items-center justify-center gap-1 bg-sky-500 text-white text-sm font-medium py-2 rounded-lg hover:bg-sky-600">
+                    <Send className="w-3.5 h-3.5" /> 전송
+                  </button>
+                  <button onClick={() => { setShowAnonForm(false); setAnonText(''); }} className="px-4 text-sm text-slate-500 hover:text-slate-700">
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {mode === 'employee' && !selectedEmployee && employees.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -383,7 +447,7 @@ export default function App() {
 
         {mode === 'employee' && !selectedEmployee && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Lock className="w-4 h-4 text-sky-500" /> 직원 로그인</h2>
+            <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Lock className="w-4 h-4 text-sky-500" /> 매니저 로그인</h2>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">이름</label>
             <select value={loginName} onChange={e => { setLoginName(e.target.value); setLoginError(''); }} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-400">
               <option value="">이름을 선택하세요</option>
@@ -393,7 +457,7 @@ export default function App() {
             <input ref={passwordInputRef} type="password" value={loginPw} onChange={e => { setLoginPw(e.target.value); setLoginError(''); }} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
             {loginError && <p className="text-xs text-red-500 mt-2">{loginError}</p>}
             <button onClick={handleEmployeeLogin} className="mt-3 w-full bg-sky-500 text-white text-sm font-medium py-2 rounded-lg hover:bg-sky-600">로그인</button>
-            {employees.length === 0 && <p className="text-xs text-slate-400 mt-3">등록된 직원이 없어요. 관리자 모드에서 먼저 직원을 추가해주세요.</p>}
+            {employees.length === 0 && <p className="text-xs text-slate-400 mt-3">등록된 매니저가 없어요. 관리자 모드에서 먼저 매니저를 추가해주세요.</p>}
           </div>
         )}
 
@@ -523,6 +587,47 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 관리자와 메시지</h2>
+              {(() => {
+                const myThread = messages.filter(m => m.employeeId === selectedEmployee).sort((a, b) => a.ts - b.ts);
+                return (
+                  <>
+                    {myThread.length === 0 ? (
+                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
+                    ) : (
+                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+                        {myThread.map(m => (
+                          <div key={m.id} className={`flex ${m.sender === 'employee' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'employee' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                              <div className="font-semibold mb-0.5">{m.sender === 'employee' ? '나' : '관리자'}</div>
+                              <div>{m.text}</div>
+                              <div className={`text-[10px] mt-1 ${m.sender === 'employee' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={myMsgText}
+                        onChange={e => setMyMsgText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
+                        placeholder="메시지 입력"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      <button
+                        onClick={() => { if (myMsgText.trim()) { sendManagerMessage(selectedEmployee, 'employee', myMsgText); setMyMsgText(''); } }}
+                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </>
         )}
 
@@ -571,6 +676,80 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 익명 제보함 ({anonymousMessages.length})</h2>
+              {anonymousMessages.length === 0 ? (
+                <p className="text-xs text-slate-400">접수된 익명 메시지가 없어요.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {[...anonymousMessages].sort((a, b) => b.ts - a.ts).map(m => (
+                    <div key={m.id} className="border border-slate-200 rounded-lg p-3">
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{m.text}</p>
+                      <p className="text-[11px] text-slate-400 mt-1.5">{formatDateTime(m.ts)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><MessageSquare className="w-4 h-4 text-sky-500" /> 매니저 메시지함</h2>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {employees.map(e => {
+                  const count = messages.filter(m => m.employeeId === e.id).length;
+                  const isActive = adminMsgThread === e.id;
+                  return (
+                    <button
+                      key={e.id}
+                      onClick={() => setAdminMsgThread(e.id)}
+                      className={`text-xs px-3 py-1.5 rounded-full border font-medium ${isActive ? 'bg-sky-500 text-white border-sky-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {e.name}{count > 0 ? ` (${count})` : ''}
+                    </button>
+                  );
+                })}
+                {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
+              </div>
+
+              {adminMsgThread && (() => {
+                const thread = messages.filter(m => m.employeeId === adminMsgThread).sort((a, b) => a.ts - b.ts);
+                return (
+                  <div>
+                    {thread.length === 0 ? (
+                      <p className="text-xs text-slate-400 mb-3">아직 주고받은 메시지가 없어요.</p>
+                    ) : (
+                      <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
+                        {thread.map(m => (
+                          <div key={m.id} className={`flex ${m.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${m.sender === 'admin' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                              <div className="font-semibold mb-0.5">{m.sender === 'admin' ? '나(관리자)' : getEmpName(adminMsgThread)}</div>
+                              <div>{m.text}</div>
+                              <div className={`text-[10px] mt-1 ${m.sender === 'admin' ? 'text-sky-100' : 'text-slate-400'}`}>{formatDateTime(m.ts)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={adminMsgText}
+                        onChange={e => setAdminMsgText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                        placeholder="답장 입력"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      <button
+                        onClick={() => { if (adminMsgText.trim()) { sendManagerMessage(adminMsgThread, 'admin', adminMsgText); setAdminMsgText(''); } }}
+                        className="px-3 bg-sky-500 text-white rounded-lg hover:bg-sky-600"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
               <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Boxes className="w-4 h-4 text-sky-500" /> 재고 현황</h2>
               <div className="space-y-2">
                 {models.map(m => {
@@ -604,7 +783,7 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><User className="w-4 h-4 text-slate-500" /> 직원 관리</h2>
+              <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><User className="w-4 h-4 text-slate-500" /> 매니저 관리</h2>
               <div className="space-y-1.5 mb-3">
                 {employees.map(e => (
                   <div key={e.id} className="flex items-center justify-between text-sm px-3 py-2 border border-slate-200 rounded-lg">
@@ -645,7 +824,7 @@ export default function App() {
                     )}
                   </div>
                 ))}
-                {employees.length === 0 && <span className="text-xs text-slate-400">등록된 직원 없음</span>}
+                {employees.length === 0 && <span className="text-xs text-slate-400">등록된 매니저 없음</span>}
               </div>
               <label className="text-xs text-slate-500">이름,비밀번호 형식으로 한 줄에 한 명씩 입력하세요</label>
               <textarea value={bulkNames} onChange={e => setBulkNames(e.target.value)} placeholder={'예)\n김철수,1234\n이영희,5678'} rows={3} className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
