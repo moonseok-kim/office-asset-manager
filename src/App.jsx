@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { db } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone } from 'lucide-react';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, storage } from './firebase';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone, Image as ImageIcon } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
@@ -24,7 +25,7 @@ const defaultData = () => {
       items.push({ id: `${m.name}-${i}`, modelId: m.id, status: 'available', assignedTo: null });
     }
   });
-  return { employees: [], models, items, requests: [], anonymousMessages: [], messages: [], announcements: [] };
+  return { employees: [], models, items, requests: [], anonymousMessages: [], messages: [], announcements: [], photos: [] };
 };
 
 export default function App() {
@@ -62,6 +63,8 @@ export default function App() {
   const [announceInput, setAnnounceInput] = useState('');
   const [editingAnnId, setEditingAnnId] = useState(null);
   const [editingAnnText, setEditingAnnText] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState(null);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -119,6 +122,7 @@ export default function App() {
   const messages = data.messages || [];
   const notes = data.notes || [];
   const announcements = data.announcements || [];
+  const photos = data.photos || [];
   const getEmpName = (id) => employees.find(e => e.id === id)?.name || '알 수 없음';
   const formatDateTime = (ts) => {
     if (!ts) return '';
@@ -401,6 +405,60 @@ export default function App() {
   const deleteAnnouncement = async (id) => {
     await persist({ announcements: announcements.filter(a => a.id !== id) });
     showToast('공지사항을 삭제했어요.');
+  };
+
+  const compressImage = (file, maxDim = 1280, quality = 0.8) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else if (height >= width && height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => { if (blob) resolve(blob); else reject(new Error('압축 실패')); }, 'image/jpeg', quality);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const uploadPhoto = async (file) => {
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      const blob = await compressImage(file);
+      const now = Date.now();
+      const path = `photos/${now}_${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, blob);
+      const url = await getDownloadURL(storageRef);
+      const uploaderName = mode === 'admin' ? '센터장' : getEmpName(selectedEmployee);
+      const uploaderId = mode === 'admin' ? 'admin' : selectedEmployee;
+      const photo = { id: `photo_${now}_${Math.random().toString(36).slice(2, 7)}`, url, path, uploaderName, uploaderId, ts: now };
+      await persist({ photos: [...photos, photo] });
+      showToast('사진이 업로드됐어요.');
+    } catch (e) {
+      console.error(e);
+      showToast('업로드에 실패했어요. Firebase Storage 설정을 확인해주세요.');
+    }
+    setPhotoUploading(false);
+  };
+
+  const deletePhoto = async (photo) => {
+    try {
+      await deleteObject(ref(storage, photo.path));
+    } catch (e) {
+      console.error(e);
+    }
+    await persist({ photos: photos.filter(p => p.id !== photo.id) });
+    showToast('사진을 삭제했어요.');
   };
 
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
@@ -799,6 +857,33 @@ export default function App() {
                 </div>
               )}
             </Section>
+
+            <Section title="사진첩" icon={ImageIcon} iconColor="text-pink-500">
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <span className="text-xs text-slate-400">회사 행사·활동 사진을 자유롭게 올리고 볼 수 있어요</span>
+                <label className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-md whitespace-nowrap ${photoUploading ? 'bg-slate-200 text-slate-400' : 'bg-sky-500 text-white cursor-pointer hover:bg-sky-600'}`}>
+                  <Plus className="w-3.5 h-3.5" /> {photoUploading ? '업로드중...' : '사진 추가'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={photoUploading}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ''; }}
+                  />
+                </label>
+              </div>
+              {photos.length === 0 ? (
+                <p className="text-xs text-slate-400">아직 올라온 사진이 없어요.</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[...photos].sort((a, b) => b.ts - a.ts).map(p => (
+                    <button key={p.id} onClick={() => setViewingPhoto(p)} className="aspect-square rounded-lg overflow-hidden bg-slate-100">
+                      <img src={p.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Section>
           </>
         )}
 
@@ -1102,9 +1187,53 @@ export default function App() {
                 </button>
               </div>
             </Section>
+
+            <Section title="사진첩" icon={ImageIcon} iconColor="text-pink-500">
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <span className="text-xs text-slate-400">회사 행사·활동 사진을 자유롭게 올리고 볼 수 있어요</span>
+                <label className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-md whitespace-nowrap ${photoUploading ? 'bg-slate-200 text-slate-400' : 'bg-sky-500 text-white cursor-pointer hover:bg-sky-600'}`}>
+                  <Plus className="w-3.5 h-3.5" /> {photoUploading ? '업로드중...' : '사진 추가'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={photoUploading}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ''; }}
+                  />
+                </label>
+              </div>
+              {photos.length === 0 ? (
+                <p className="text-xs text-slate-400">아직 올라온 사진이 없어요.</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[...photos].sort((a, b) => b.ts - a.ts).map(p => (
+                    <button key={p.id} onClick={() => setViewingPhoto(p)} className="aspect-square rounded-lg overflow-hidden bg-slate-100">
+                      <img src={p.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Section>
           </>
         )}
       </div>
+
+      {viewingPhoto && (
+        <div className="fixed inset-0 bg-black/80 z-40 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}>
+          <div className="max-w-full max-h-full" onClick={e => e.stopPropagation()}>
+            <img src={viewingPhoto.url} alt="" className="max-w-full max-h-[70vh] rounded-t-lg mx-auto" />
+            <div className="bg-white rounded-b-lg p-3 flex items-center justify-between">
+              <span className="text-xs text-slate-500">{viewingPhoto.uploaderName} · {formatDateTime(viewingPhoto.ts)}</span>
+              <div className="flex items-center gap-3">
+                {((mode === 'admin' && adminAuthed) || (mode === 'employee' && viewingPhoto.uploaderId === selectedEmployee)) && (
+                  <button onClick={() => { deletePhoto(viewingPhoto); setViewingPhoto(null); }} className="text-xs text-red-500 hover:underline">삭제</button>
+                )}
+                <button onClick={() => setViewingPhoto(null)} className="text-xs text-slate-400 hover:underline">닫기</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-4 py-2 rounded-full shadow-lg z-30">

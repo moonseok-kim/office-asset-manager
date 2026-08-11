@@ -1,5 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // 아래 5개 값 중 apiKey, messagingSenderId, appId 는
 // Firebase 콘솔 > 프로젝트 설정 > "내 앱" 에서 복사해서 넣어주세요.
@@ -14,3 +16,5 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
