@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone } from 'lucide-react';
 
@@ -91,11 +91,11 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  const persist = async (next) => {
-    setData(next);
+  const persist = async (partialUpdate) => {
+    setData(prev => ({ ...prev, ...partialUpdate }));
     setSaving(true);
     try {
-      await setDoc(DOC_REF, next);
+      await updateDoc(DOC_REF, partialUpdate);
     } catch (e) {
       console.error(e);
       showToast('저장에 실패했어요. 다시 시도해주세요.');
@@ -162,7 +162,7 @@ export default function App() {
       existing.add(namePart);
     }
     if (toAdd.length === 0) { showToast('추가할 새 이름이 없어요.'); return; }
-    await persist({ ...data, employees: [...employees, ...toAdd] });
+    await persist({ employees: [...employees, ...toAdd] });
     setBulkNames('');
     showToast(`매니저 ${toAdd.length}명 추가됨`);
   };
@@ -170,7 +170,7 @@ export default function App() {
   const removeEmployee = async (id) => {
     const stillHolding = items.some(it => it.assignedTo === id && it.status !== 'available');
     if (stillHolding) { showToast('보유 중인 자재가 있어 삭제할 수 없어요.'); return; }
-    await persist({ ...data, employees: employees.filter(e => e.id !== id) });
+    await persist({ employees: employees.filter(e => e.id !== id) });
   };
 
   const resizeImage = (file) => new Promise((resolve, reject) => {
@@ -200,7 +200,7 @@ export default function App() {
     if (!file) return;
     try {
       const dataUrl = await resizeImage(file);
-      await persist({ ...data, employees: employees.map(e => e.id === empId ? { ...e, photo: dataUrl } : e) });
+      await persist({ employees: employees.map(e => e.id === empId ? { ...e, photo: dataUrl } : e) });
       showToast('사진이 등록됐어요.');
     } catch (e) {
       showToast('사진 처리에 실패했어요. 다른 사진으로 시도해주세요.');
@@ -209,7 +209,7 @@ export default function App() {
 
   const startPwEdit = (emp) => { setPwEditId(emp.id); setPwEditValue(emp.password || ''); };
   const savePwEdit = async (id) => {
-    await persist({ ...data, employees: employees.map(e => e.id === id ? { ...e, password: pwEditValue.trim() } : e) });
+    await persist({ employees: employees.map(e => e.id === id ? { ...e, password: pwEditValue.trim() } : e) });
     setPwEditId(null);
     setPwEditValue('');
     showToast('비밀번호가 변경됐어요.');
@@ -223,7 +223,7 @@ export default function App() {
     const model = { id: name, name, qty };
     const newItems = [];
     for (let i = 1; i <= qty; i++) newItems.push({ id: `${name}-${i}`, modelId: name, status: 'available', assignedTo: null });
-    await persist({ ...data, models: [...models, model], items: [...items, ...newItems] });
+    await persist({ models: [...models, model], items: [...items, ...newItems] });
     setNewModelName(''); setNewModelQty('');
     showToast(`${name} 모델 추가됨 (${qty}대)`);
   };
@@ -231,7 +231,7 @@ export default function App() {
   const removeModel = async (id) => {
     const inUse = items.some(it => it.modelId === id && it.status !== 'available');
     if (inUse) { showToast('사용 중인 자재가 있어 모델을 삭제할 수 없어요.'); return; }
-    await persist({ ...data, models: models.filter(m => m.id !== id), items: items.filter(it => it.modelId !== id) });
+    await persist({ models: models.filter(m => m.id !== id), items: items.filter(it => it.modelId !== id) });
   };
 
   const updateModelQty = async (id, newQtyRaw) => {
@@ -249,7 +249,7 @@ export default function App() {
         newItems.push({ id: `${id}-${nextNum}`, modelId: id, status: 'available', assignedTo: null });
         nextNum++;
       }
-      await persist({ ...data, models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: [...items, ...newItems] });
+      await persist({ models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: [...items, ...newItems] });
       showToast(`${id} 수량이 ${newQty}대로 늘었어요.`);
     } else {
       const removeCount = -diff;
@@ -264,7 +264,7 @@ export default function App() {
         return bn - an;
       });
       const idsToRemove = new Set(sortedRemovable.slice(0, removeCount).map(it => it.id));
-      await persist({ ...data, models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: items.filter(it => !idsToRemove.has(it.id)) });
+      await persist({ models: models.map(m => m.id === id ? { ...m, qty: newQty } : m), items: items.filter(it => !idsToRemove.has(it.id)) });
       showToast(`${id} 수량이 ${newQty}대로 줄었어요.`);
     }
   };
@@ -275,7 +275,7 @@ export default function App() {
     if (!item || item.status !== 'available') return;
     const req = { id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, type: 'checkout', itemId, employeeId: selectedEmployee, status: 'pending', ts: Date.now() };
     const newItems = items.map(i => i.id === itemId ? { ...i, status: 'pending_checkout' } : i);
-    await persist({ ...data, items: newItems, requests: [...requests, req] });
+    await persist({ items: newItems, requests: [...requests, req] });
     showToast(`${itemId} 신청 완료 · 승인 대기 중`);
   };
 
@@ -284,7 +284,7 @@ export default function App() {
     if (!item || item.status !== 'assigned') return;
     const req = { id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, type: 'return', itemId, employeeId: item.assignedTo, status: 'pending', ts: Date.now() };
     const newItems = items.map(i => i.id === itemId ? { ...i, status: 'pending_return' } : i);
-    await persist({ ...data, items: newItems, requests: [...requests, req] });
+    await persist({ items: newItems, requests: [...requests, req] });
     showToast(`${itemId} 반납 신청 완료`);
   };
 
@@ -299,7 +299,7 @@ export default function App() {
       return it;
     });
     const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'approved', approvedAt: now } : r);
-    await persist({ ...data, items: newItems, requests: newRequests });
+    await persist({ items: newItems, requests: newRequests });
     showToast('승인 완료');
   };
 
@@ -313,7 +313,7 @@ export default function App() {
       return it;
     });
     const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r);
-    await persist({ ...data, items: newItems, requests: newRequests });
+    await persist({ items: newItems, requests: newRequests });
     showToast('거절 처리됨');
   };
 
@@ -327,7 +327,7 @@ export default function App() {
       return it;
     });
     const newRequests = requests.map(r => r.id === reqId ? { ...r, status: 'cancelled' } : r);
-    await persist({ ...data, items: newItems, requests: newRequests });
+    await persist({ items: newItems, requests: newRequests });
     showToast('신청을 취소했어요.');
   };
 
@@ -335,7 +335,7 @@ export default function App() {
     const text = anonText.trim();
     if (!text) { showToast('내용을 입력해주세요.'); return; }
     const msg = { id: `anon_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text, ts: Date.now() };
-    await persist({ ...data, anonymousMessages: [...anonymousMessages, msg] });
+    await persist({ anonymousMessages: [...anonymousMessages, msg] });
     setAnonText('');
     setShowAnonForm(false);
     showToast('익명으로 안전하게 전달됐어요. 감사합니다.');
@@ -345,16 +345,16 @@ export default function App() {
     const trimmed = text.trim();
     if (!trimmed || !employeeId) return;
     const msg = { id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, employeeId, sender, text: trimmed, ts: Date.now() };
-    await persist({ ...data, messages: [...messages, msg] });
+    await persist({ messages: [...messages, msg] });
   };
 
   const deleteAnonymousMessage = async (id) => {
-    await persist({ ...data, anonymousMessages: anonymousMessages.filter(m => m.id !== id) });
+    await persist({ anonymousMessages: anonymousMessages.filter(m => m.id !== id) });
     showToast('삭제했어요.');
   };
 
   const deleteManagerMessage = async (id) => {
-    await persist({ ...data, messages: messages.filter(m => m.id !== id) });
+    await persist({ messages: messages.filter(m => m.id !== id) });
     showToast('삭제했어요.');
   };
 
@@ -363,7 +363,7 @@ export default function App() {
     if (!text || !selectedEmployee) return;
     const now = Date.now();
     const note = { id: `note_${now}_${Math.random().toString(36).slice(2, 7)}`, employeeId: selectedEmployee, text, createdAt: now, updatedAt: now };
-    await persist({ ...data, notes: [...notes, note] });
+    await persist({ notes: [...notes, note] });
     setNoteInput('');
   };
 
@@ -371,12 +371,12 @@ export default function App() {
   const saveEditNote = async (id) => {
     const text = editingNoteText.trim();
     if (!text) return;
-    await persist({ ...data, notes: notes.map(n => n.id === id ? { ...n, text, updatedAt: Date.now() } : n) });
+    await persist({ notes: notes.map(n => n.id === id ? { ...n, text, updatedAt: Date.now() } : n) });
     setEditingNoteId(null);
     setEditingNoteText('');
   };
   const deleteNote = async (id) => {
-    await persist({ ...data, notes: notes.filter(n => n.id !== id) });
+    await persist({ notes: notes.filter(n => n.id !== id) });
     showToast('메모를 삭제했어요.');
   };
 
@@ -385,7 +385,7 @@ export default function App() {
     if (!text) { showToast('내용을 입력해주세요.'); return; }
     const now = Date.now();
     const a = { id: `ann_${now}_${Math.random().toString(36).slice(2, 7)}`, text, createdAt: now, updatedAt: now };
-    await persist({ ...data, announcements: [...announcements, a] });
+    await persist({ announcements: [...announcements, a] });
     setAnnounceInput('');
     showToast('공지사항이 등록됐어요.');
   };
@@ -394,12 +394,12 @@ export default function App() {
   const saveEditAnnouncement = async (id) => {
     const text = editingAnnText.trim();
     if (!text) return;
-    await persist({ ...data, announcements: announcements.map(a => a.id === id ? { ...a, text, updatedAt: Date.now() } : a) });
+    await persist({ announcements: announcements.map(a => a.id === id ? { ...a, text, updatedAt: Date.now() } : a) });
     setEditingAnnId(null);
     setEditingAnnText('');
   };
   const deleteAnnouncement = async (id) => {
-    await persist({ ...data, announcements: announcements.filter(a => a.id !== id) });
+    await persist({ announcements: announcements.filter(a => a.id !== id) });
     showToast('공지사항을 삭제했어요.');
   };
 
