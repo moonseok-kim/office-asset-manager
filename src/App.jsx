@@ -6,6 +6,9 @@ import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, S
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
+// 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
+// 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
+const APP_VERSION = 2;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -65,6 +68,7 @@ export default function App() {
   const [editingAnnText, setEditingAnnText] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [staleVersion, setStaleVersion] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -77,7 +81,13 @@ export default function App() {
       DOC_REF,
       async (snap) => {
         if (snap.exists()) {
-          setData(snap.data());
+          const d = snap.data();
+          setData(d);
+          if (d.appVersion && d.appVersion > APP_VERSION) {
+            setStaleVersion(true);
+          } else if (!d.appVersion || d.appVersion < APP_VERSION) {
+            updateDoc(DOC_REF, { appVersion: APP_VERSION }).catch(() => {});
+          }
         } else {
           const d = defaultData();
           await setDoc(DOC_REF, d);
@@ -95,6 +105,10 @@ export default function App() {
   }, []);
 
   const persist = async (partialUpdate) => {
+    if (staleVersion) {
+      showToast('새 버전이 있어요. 새로고침 후 다시 시도해주세요.');
+      return;
+    }
     setData(prev => ({ ...prev, ...partialUpdate }));
     setSaving(true);
     try {
@@ -493,6 +507,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
+      {staleVersion && (
+        <div className="bg-red-600 text-white text-sm font-medium text-center py-2.5 px-4 sticky top-0 z-50">
+          새 버전이 있어요. 데이터 보호를 위해 지금 새로고침 해주세요.
+          <button onClick={() => window.location.reload()} className="ml-2 underline font-bold">
+            새로고침
+          </button>
+        </div>
+      )}
       <div className="bg-slate-900 text-white px-5 py-4 sticky top-0 z-20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
