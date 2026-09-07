@@ -4,5 +4,8 @@ service cloud.firestore {
     match /assetManager/data {
       allow read, write: if true;
     }
+    match /assetManagerBackups/{backupId} {
+      allow read, write: if true;
+    }
   }
 }

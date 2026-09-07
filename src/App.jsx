@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc, getDoc, collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone, Image as ImageIcon } from 'lucide-react';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone, Image as ImageIcon, History } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
 // 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
 // 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -72,6 +72,8 @@ export default function App() {
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [staleVersion, setStaleVersion] = useState(false);
   const [loginNeedsRefresh, setLoginNeedsRefresh] = useState(false);
+  const [backups, setBackups] = useState([]);
+  const [backupsLoaded, setBackupsLoaded] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -156,6 +158,7 @@ export default function App() {
       setAdminAuthed(true);
       setAdminError('');
       setAdminPwInput('');
+      maybeBackupToday();
     } else {
       setAdminError('비밀번호가 올바르지 않아요.');
     }
@@ -492,6 +495,60 @@ export default function App() {
   const setFeaturedPhoto = async (photoId) => {
     await persist({ featuredPhotoId: photoId });
     showToast(photoId ? '대표사진으로 설정됐어요.' : '대표사진을 해제했어요.');
+  };
+
+  const maybeBackupToday = async () => {
+    const dateKey = new Date().toISOString().slice(0, 10);
+    try {
+      const backupRef = doc(db, 'assetManagerBackups', dateKey);
+      const snap = await getDoc(backupRef);
+      if (!snap.exists()) {
+        await setDoc(backupRef, { ...data, backedUpAt: Date.now() });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const manualBackupNow = async () => {
+    try {
+      const now = Date.now();
+      const dateKey = `${new Date(now).toISOString().slice(0, 10)}_${now}`;
+      await setDoc(doc(db, 'assetManagerBackups', dateKey), { ...data, backedUpAt: now });
+      showToast('지금 상태로 백업했어요.');
+      fetchBackups();
+    } catch (e) {
+      console.error(e);
+      showToast('백업에 실패했어요.');
+    }
+  };
+
+  const fetchBackups = async () => {
+    try {
+      const q = query(collection(db, 'assetManagerBackups'), orderBy('backedUpAt', 'desc'), limit(30));
+      const snap = await getDocs(q);
+      setBackups(snap.docs.map(d => ({ id: d.id, backedUpAt: d.data().backedUpAt })));
+      setBackupsLoaded(true);
+    } catch (e) {
+      console.error(e);
+      showToast('백업 목록을 불러오지 못했어요.');
+    }
+  };
+
+  const restoreBackup = async (backupId) => {
+    if (!window.confirm(`이 시점으로 되돌릴까요? 지금 데이터는 그 시점 내용으로 덮어써져요.`)) return;
+    try {
+      const backupRef = doc(db, 'assetManagerBackups', backupId);
+      const snap = await getDoc(backupRef);
+      if (!snap.exists()) { showToast('백업을 찾을 수 없어요.'); return; }
+      const backupData = { ...snap.data() };
+      delete backupData.backedUpAt;
+      await setDoc(DOC_REF, backupData);
+      showToast('복원했어요. 새로고침 후 확인해주세요.');
+    } catch (e) {
+      console.error(e);
+      showToast('복원에 실패했어요.');
+    }
   };
 
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
@@ -977,6 +1034,27 @@ export default function App() {
                 <LogOut className="w-3.5 h-3.5" /> 로그아웃
               </button>
             </div>
+
+            <Section title="데이터 백업" icon={History} iconColor="text-emerald-600" onOpen={fetchBackups}>
+              <p className="text-xs text-slate-500 mb-3">관리자로 로그인할 때마다 하루 한 번 자동으로 백업돼요. 필요하면 지금 바로 백업하거나, 예전 시점으로 되돌릴 수 있어요.</p>
+              <button onClick={manualBackupNow} className="mb-3 flex items-center gap-1 text-xs font-medium bg-emerald-500 text-white px-3 py-1.5 rounded-md hover:bg-emerald-600">
+                <Plus className="w-3.5 h-3.5" /> 지금 바로 백업
+              </button>
+              {!backupsLoaded ? (
+                <p className="text-xs text-slate-400">목록을 불러오는 중...</p>
+              ) : backups.length === 0 ? (
+                <p className="text-xs text-slate-400">아직 백업이 없어요.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {backups.map(b => (
+                    <div key={b.id} className="flex items-center justify-between text-xs border border-slate-200 rounded-lg px-3 py-2">
+                      <span>{formatDateTime(b.backedUpAt)}</span>
+                      <button onClick={() => restoreBackup(b.id)} className="text-sky-600 hover:underline">이 시점으로 복원</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
 
             <Section title="공지사항 관리" icon={Megaphone} iconColor="text-amber-500">
               <div className="space-y-2 mb-3">
