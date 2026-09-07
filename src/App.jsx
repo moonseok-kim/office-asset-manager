@@ -8,7 +8,7 @@ const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
 // 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
 // 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -570,6 +570,27 @@ export default function App() {
     }
   };
 
+  const downloadBackupFile = () => {
+    try {
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const now = new Date();
+      const stamp = now.toISOString().slice(0, 16).replace('T', '_').replace(':', '');
+      a.href = url;
+      a.download = `asset-manager-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('컴퓨터로 백업 파일이 다운로드됐어요.');
+    } catch (e) {
+      console.error(e);
+      showToast('다운로드에 실패했어요.');
+    }
+  };
+
   const manualBackupNow = async () => {
     try {
       const now = Date.now();
@@ -1105,9 +1126,15 @@ export default function App() {
 
             <Section title="데이터 백업" icon={History} iconColor="text-emerald-600" onOpen={fetchBackups}>
               <p className="text-xs text-slate-500 mb-3">관리자로 로그인할 때마다 하루 한 번 자동으로 백업돼요. 필요하면 지금 바로 백업하거나, 예전 시점으로 되돌릴 수 있어요.</p>
-              <button onClick={manualBackupNow} className="mb-3 flex items-center gap-1 text-xs font-medium bg-emerald-500 text-white px-3 py-1.5 rounded-md hover:bg-emerald-600">
-                <Plus className="w-3.5 h-3.5" /> 지금 바로 백업
-              </button>
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button onClick={manualBackupNow} className="flex items-center gap-1 text-xs font-medium bg-emerald-500 text-white px-3 py-1.5 rounded-md hover:bg-emerald-600">
+                  <Plus className="w-3.5 h-3.5" /> 지금 바로 백업
+                </button>
+                <button onClick={downloadBackupFile} className="flex items-center gap-1 text-xs font-medium bg-slate-700 text-white px-3 py-1.5 rounded-md hover:bg-slate-800">
+                  <Download className="w-3.5 h-3.5" /> 내 컴퓨터에 다운로드
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-3">다운로드한 파일은 구글 드라이브나 이메일 등 Firebase 밖 다른 곳에도 보관해두시면 더 안전해요.</p>
               {!backupsLoaded ? (
                 <p className="text-xs text-slate-400">목록을 불러오는 중...</p>
               ) : backups.length === 0 ? (
