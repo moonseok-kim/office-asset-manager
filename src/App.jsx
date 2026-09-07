@@ -8,7 +8,7 @@ const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
 // 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
 // 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
-const APP_VERSION = 2;
+const APP_VERSION = 3;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -54,6 +54,8 @@ export default function App() {
   const [pwEditId, setPwEditId] = useState(null);
   const [pwEditValue, setPwEditValue] = useState('');
   const passwordInputRef = useRef(null);
+  const pageLoadTimeRef = useRef(Date.now());
+  const STALE_LOGIN_MS = 10 * 60 * 1000; // 10분 이상 화면을 열어두면 로그인 전 새로고침 요구
 
   const [showAnonForm, setShowAnonForm] = useState(false);
   const [anonText, setAnonText] = useState('');
@@ -69,6 +71,7 @@ export default function App() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [staleVersion, setStaleVersion] = useState(false);
+  const [loginNeedsRefresh, setLoginNeedsRefresh] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -137,6 +140,7 @@ export default function App() {
   const notes = data.notes || [];
   const announcements = data.announcements || [];
   const photos = data.photos || [];
+  const featuredPhoto = photos.find(p => p.id === data.featuredPhotoId);
   const getEmpName = (id) => employees.find(e => e.id === id)?.name || '알 수 없음';
   const formatDateTime = (ts) => {
     if (!ts) return '';
@@ -144,6 +148,10 @@ export default function App() {
   };
 
   const handleAdminLogin = () => {
+    if (Date.now() - pageLoadTimeRef.current > STALE_LOGIN_MS) {
+      setLoginNeedsRefresh(true);
+      return;
+    }
     if (adminPwInput === ADMIN_PASSWORD) {
       setAdminAuthed(true);
       setAdminError('');
@@ -154,6 +162,10 @@ export default function App() {
   };
 
   const handleEmployeeLogin = () => {
+    if (Date.now() - pageLoadTimeRef.current > STALE_LOGIN_MS) {
+      setLoginNeedsRefresh(true);
+      return;
+    }
     const emp = employees.find(e => e.name === loginName);
     if (!emp) { setLoginError('이름을 선택해주세요.'); return; }
     if (emp.password && emp.password !== loginPw) { setLoginError('비밀번호가 올바르지 않아요.'); return; }
@@ -385,7 +397,7 @@ export default function App() {
     setNoteInput('');
   };
 
-  const startEditNote = (음표) => { setEditingNoteId(note.id); setEditingNoteText(note.text); };
+  const startEditNote = (note) => { setEditingNoteId(note.id); setEditingNoteText(note.text); };
   const saveEditNote = async (id) => {
     const text = editingNoteText.trim();
     if (!text) return;
@@ -471,8 +483,15 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    await persist({ photos: photos.filter(p => p.id !== photo.id) });
+    const update = { photos: photos.filter(p => p.id !== photo.id) };
+    if (data.featuredPhotoId === photo.id) update.featuredPhotoId = null;
+    await persist(update);
     showToast('사진을 삭제했어요.');
+  };
+
+  const setFeaturedPhoto = async (photoId) => {
+    await persist({ featuredPhotoId: photoId });
+    showToast(photoId ? '대표사진으로 설정됐어요.' : '대표사진을 해제했어요.');
   };
 
   const pendingRequests = requests.filter(r => r.status === 'pending').sort((a, b) => a.ts - b.ts);
@@ -538,6 +557,16 @@ export default function App() {
           <h1 className="text-lg font-bold text-slate-800 leading-snug">최강 강남 비품목 재고 관리</h1>
           <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
         </div>
+
+        {featuredPhoto && (
+          <div className="flex justify-center">
+            <img
+              src={featuredPhoto.url}
+              alt="대표사진"
+              className="w-full max-h-56 object-cover rounded-xl border border-slate-200 shadow-sm"
+            />
+          </div>
+        )}
 
         {announcements.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -630,17 +659,28 @@ export default function App() {
 
         {mode === 'employee' && !selectedEmployee && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Lock className="w-4 h-4 text-sky-500" /> 매니저 로그인</h2>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">이름</label>
-            <select value={loginName} onChange={e => { setLoginName(e.target.value); setLoginError(''); }} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-400">
-              <option value="">이름을 선택하세요</option>
-              {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
-            </select>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-3 block">비밀번호</label>
-            <input ref={passwordInputRef} type="password" value={loginPw} onChange={e => { setLoginPw(e.target.value); setLoginError(''); }} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
-            {loginError && <p className="text-xs text-red-500 mt-2">{loginError}</p>}
-            <button onClick={handleEmployeeLogin} className="mt-3 w-full bg-sky-500 text-white text-sm font-medium py-2 rounded-lg hover:bg-sky-600">로그인</button>
-            {employees.length === 0 && <p className="text-xs text-slate-400 mt-3">등록된 매니저가 없어요. 관리자 모드에서 먼저 매니저를 추가해주세요.</p>}
+            {loginNeedsRefresh ? (
+              <div className="text-center py-2">
+                <p className="text-sm font-semibold text-red-600 mb-3">화면을 오래 열어두셨네요. 안전한 로그인을 위해 새로고침이 필요해요.</p>
+                <button onClick={() => window.location.reload()} className="bg-red-500 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-600">
+                  새로고침
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Lock className="w-4 h-4 text-sky-500" /> 매니저 로그인</h2>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">이름</label>
+                <select value={loginName} onChange={e => { setLoginName(e.target.value); setLoginError(''); }} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-400">
+                  <option value="">이름을 선택하세요</option>
+                  {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                </select>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-3 block">비밀번호</label>
+                <input ref={passwordInputRef} type="password" value={loginPw} onChange={e => { setLoginPw(e.target.value); setLoginError(''); }} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
+                {loginError && <p className="text-xs text-red-500 mt-2">{loginError}</p>}
+                <button onClick={handleEmployeeLogin} className="mt-3 w-full bg-sky-500 text-white text-sm font-medium py-2 rounded-lg hover:bg-sky-600">로그인</button>
+                {employees.length === 0 && <p className="text-xs text-slate-400 mt-3">등록된 매니저가 없어요. 관리자 모드에서 먼저 매니저를 추가해주세요.</p>}
+              </>
+            )}
           </div>
         )}
 
@@ -911,11 +951,22 @@ export default function App() {
 
         {mode === 'admin' && !adminAuthed && (
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Shield className="w-4 h-4 text-slate-700" /> 관리자 로그인</h2>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">비밀번호</label>
-            <input type="password" value={adminPwInput} onChange={e => { setAdminPwInput(e.target.value); setAdminError(''); }} onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
-            {adminError && <p className="text-xs text-red-500 mt-2">{adminError}</p>}
-            <button onClick={handleAdminLogin} className="mt-3 w-full bg-slate-800 text-white text-sm font-medium py-2 rounded-lg hover:bg-slate-700">로그인</button>
+            {loginNeedsRefresh ? (
+              <div className="text-center py-2">
+                <p className="text-sm font-semibold text-red-600 mb-3">화면을 오래 열어두셨네요. 안전한 로그인을 위해 새로고침이 필요해요.</p>
+                <button onClick={() => window.location.reload()} className="bg-red-500 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-600">
+                  새로고침
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-4"><Shield className="w-4 h-4 text-slate-700" /> 관리자 로그인</h2>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">비밀번호</label>
+                <input type="password" value={adminPwInput} onChange={e => { setAdminPwInput(e.target.value); setAdminError(''); }} onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} className="mt-1.5 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" placeholder="비밀번호 입력" />
+                {adminError && <p className="text-xs text-red-500 mt-2">{adminError}</p>}
+                <button onClick={handleAdminLogin} className="mt-3 w-full bg-slate-800 text-white text-sm font-medium py-2 rounded-lg hover:bg-slate-700">로그인</button>
+              </>
+            )}
           </div>
         )}
 
@@ -1244,9 +1295,16 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 z-40 flex items-center justify-center p-4" onClick={() => setViewingPhoto(null)}>
           <div className="max-w-full max-h-full" onClick={e => e.stopPropagation()}>
             <img src={viewingPhoto.url} alt="" className="max-w-full max-h-[70vh] rounded-t-lg mx-auto" />
-            <div className="bg-white rounded-b-lg p-3 flex items-center justify-between">
+            <div className="bg-white rounded-b-lg p-3 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs text-slate-500">{viewingPhoto.uploaderName} · {formatDateTime(viewingPhoto.ts)}</span>
               <div className="flex items-center gap-3">
+                {((mode === 'admin' && adminAuthed) || (mode === 'employee' && selectedEmployee)) && (
+                  data.featuredPhotoId === viewingPhoto.id ? (
+                    <button onClick={() => setFeaturedPhoto(null)} className="text-xs text-amber-600 hover:underline">대표사진 해제</button>
+                  ) : (
+                    <button onClick={() => setFeaturedPhoto(viewingPhoto.id)} className="text-xs text-sky-600 hover:underline">대표사진으로 설정</button>
+                  )
+                )}
                 {((mode === 'admin' && adminAuthed) || (mode === 'employee' && viewingPhoto.uploaderId === selectedEmployee)) && (
                   <button onClick={() => { deletePhoto(viewingPhoto); setViewingPhoto(null); }} className="text-xs text-red-500 hover:underline">삭제</button>
                 )}
