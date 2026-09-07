@@ -559,11 +559,11 @@ export default function App() {
         </div>
 
         {featuredPhoto && (
-          <div className="flex justify-center">
+          <div className="flex justify-center bg-slate-100 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <img
               src={featuredPhoto.url}
               alt="대표사진"
-              className="w-full max-h-56 object-cover rounded-xl border border-slate-200 shadow-sm"
+              className="max-w-full max-h-[420px] w-auto h-auto object-contain"
             />
           </div>
         )}
