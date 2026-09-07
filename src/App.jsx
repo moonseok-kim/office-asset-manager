@@ -8,7 +8,7 @@ const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
 // 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
 // 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -143,6 +143,31 @@ export default function App() {
     }
     setInstallPromptEvent(null);
   };
+
+  useEffect(() => {
+    if (!('setAppBadge' in navigator)) return;
+    if (!data) return;
+    const anonymousMessagesForBadge = data.anonymousMessages || [];
+    const messagesForBadge = data.messages || [];
+    const requestsForBadge = data.requests || [];
+    const pendingForBadge = requestsForBadge.filter(r => r.status === 'pending');
+    const pendingCount = pendingForBadge.filter(r => r.ts > getSeenTs('admin_pending')).length;
+    const anonCount = anonymousMessagesForBadge.filter(m => m.ts > getSeenTs('admin_anon')).length;
+    const mgrMsgCount = messagesForBadge.filter(m => m.sender === 'employee' && m.ts > getSeenTs('admin_mgrmsg')).length;
+    const empMsgCount = selectedEmployee
+      ? messagesForBadge.filter(m => m.employeeId === selectedEmployee && m.sender === 'admin' && m.ts > getSeenTs(`emp_msg_${selectedEmployee}`)).length
+      : 0;
+
+    const total = (mode === 'admin' && adminAuthed)
+      ? pendingCount + anonCount + mgrMsgCount
+      : (mode === 'employee' && selectedEmployee ? empMsgCount : 0);
+
+    if (total > 0) {
+      navigator.setAppBadge(total).catch(() => {});
+    } else {
+      navigator.clearAppBadge().catch(() => {});
+    }
+  }, [data, mode, adminAuthed, selectedEmployee]);
 
   const persist = async (partialUpdate) => {
     if (staleVersion) {
