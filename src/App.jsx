@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc, updateDoc, getDoc, collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from './firebase';
-import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone, Image as ImageIcon, History } from 'lucide-react';
+import { Package, Check, X, User, Shield, Plus, Trash2, ArrowRightLeft, Clock, Settings, Boxes, Loader2, Lock, LogOut, KeyRound, MessageSquare, Send, ChevronDown, ChevronUp, StickyNote, Megaphone, Image as ImageIcon, History, Download } from 'lucide-react';
 
 const DOC_REF = doc(db, 'assetManager', 'data');
 const ADMIN_PASSWORD = '130320';
 // 코드를 새로 배포할 때마다 이 숫자를 올려주세요.
 // 오래된 탭이 자동으로 "새로고침 해주세요" 안내를 받도록 하는 버전 확인용입니다.
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 
 const getSeenTs = (key) => {
   try { return parseInt(localStorage.getItem(`seen_${key}`) || '0', 10); } catch { return 0; }
@@ -71,6 +71,8 @@ export default function App() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [staleVersion, setStaleVersion] = useState(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
   const [loginNeedsRefresh, setLoginNeedsRefresh] = useState(false);
   const [backups, setBackups] = useState([]);
   const [backupsLoaded, setBackupsLoaded] = useState(false);
@@ -108,6 +110,39 @@ export default function App() {
     );
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    const handleInstalled = () => {
+      setIsInstalled(true);
+      setInstallPromptEvent(null);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleInstalled);
+    if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPromptEvent) {
+      showToast('이 브라우저에서는 자동 설치가 지원되지 않아요. 브라우저 메뉴에서 "홈 화면에 추가"를 이용해주세요.');
+      return;
+    }
+    installPromptEvent.prompt();
+    const { outcome } = await installPromptEvent.userChoice;
+    if (outcome === 'accepted') {
+      showToast('바로가기가 추가됐어요!');
+    }
+    setInstallPromptEvent(null);
+  };
 
   const persist = async (partialUpdate) => {
     if (staleVersion) {
@@ -613,6 +648,14 @@ export default function App() {
         <div className="text-center pt-2 pb-1">
           <h1 className="text-lg font-bold text-slate-800 leading-snug">최강 강남 비품목 재고 관리</h1>
           <p className="text-sm text-slate-500 mt-1">김문석 010-2010-2226</p>
+          {!isInstalled && (
+            <button
+              onClick={handleInstallClick}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-sky-600 border border-sky-200 bg-sky-50 px-3 py-1.5 rounded-full hover:bg-sky-100"
+            >
+              <Download className="w-3.5 h-3.5" /> 바탕화면에 바로가기 만들기
+            </button>
+          )}
         </div>
 
         {featuredPhoto && (
